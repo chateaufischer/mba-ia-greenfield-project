@@ -71,9 +71,11 @@ describe('StorageService (integration — MinIO real)', () => {
         objectKey,
         'application/octet-stream',
       );
-      const presigned = await storage.presignPartUrls(objectKey, uploadId, [
-        1, 2,
-      ]);
+      const presigned = await storage.presignPartUrls(
+        objectKey,
+        uploadId,
+        [1, 2],
+      );
       expect(presigned).toHaveLength(2);
 
       const etags = await Promise.all([
@@ -96,9 +98,11 @@ describe('StorageService (integration — MinIO real)', () => {
         objectKey,
         'application/octet-stream',
       );
-      const [presigned] = await storage.presignPartUrls(objectKey, uploadId, [
-        1,
-      ]);
+      const [presigned] = await storage.presignPartUrls(
+        objectKey,
+        uploadId,
+        [1],
+      );
       const etag = await putPart(presigned.url, Buffer.alloc(1024, 3));
 
       await storage.abortMultipartUpload(objectKey, uploadId);

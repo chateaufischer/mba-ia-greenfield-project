@@ -35,9 +35,7 @@ describe('storage.keys', () => {
 
   describe('thumbnailKey', () => {
     it('should place the thumbnail under the thumbnail prefix', () => {
-      expect(thumbnailKey(videoId)).toBe(
-        `thumbnails/${videoId}/thumbnail.jpg`,
-      );
+      expect(thumbnailKey(videoId)).toBe(`thumbnails/${videoId}/thumbnail.jpg`);
     });
   });
 });

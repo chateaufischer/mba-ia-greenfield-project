@@ -43,7 +43,10 @@ export const envValidationSchema = Joi.object({
     .integer()
     .min(5 * 1024 * 1024)
     .default(8 * 1024 * 1024),
-  UPLOAD_URL_EXPIRATION_SECONDS: Joi.number().integer().positive().default(3600),
+  UPLOAD_URL_EXPIRATION_SECONDS: Joi.number()
+    .integer()
+    .positive()
+    .default(3600),
   DELIVERY_URL_EXPIRATION_SECONDS: Joi.number()
     .integer()
     .positive()

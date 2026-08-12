@@ -1,7 +1,11 @@
 import { ConfigModule } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { connect, type Channel as AmqpChannel, type ChannelModel } from 'amqplib';
+import {
+  connect,
+  type Channel as AmqpChannel,
+  type ChannelModel,
+} from 'amqplib';
 import { DataSource, Repository } from 'typeorm';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { ChannelsModule } from '../channels/channels.module';
@@ -182,9 +186,7 @@ describe('VideosService (integration)', () => {
     await amqpChannel.purgeQueue(topology.mainQueue);
 
     await expect(
-      service.completeUpload(userId, created.id, [
-        { part_number: 1, etag },
-      ]),
+      service.completeUpload(userId, created.id, [{ part_number: 1, etag }]),
     ).rejects.toMatchObject({ errorCode: 'UPLOAD_NOT_OPEN' });
 
     const status = await amqpChannel.checkQueue(topology.mainQueue);

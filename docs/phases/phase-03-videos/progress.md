@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
-**Status:** in_progress
-**SIs:** 7/11 completed
+**Status:** completed
+**SIs:** 11/11 completed
 
 ### SI-03.1 — Infraestrutura de mídia no Compose e namespaces de configuração
 - **Status:** completed
@@ -58,21 +58,30 @@
   - Um ETag falso é recusado pelo storage no `completeMultipartUpload`; o erro é traduzido para `400 INVALID_UPLOAD_PARTS` em vez de vazar como 500.
 
 ### SI-03.8 — Adapter FFmpeg: metadados e thumbnail
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 10/10 passing (`ffmpeg.service.spec.ts` 4 unit, `ffmpeg.service.integration-spec.ts` 6 contra os binarios reais)
+- **Observations:**
+  - Os testes de integracao geram o proprio material com `ffmpeg -f lavfi -i testsrc=...`, entao nao ha fixture binaria versionada no repositorio.
+  - Um dos testes confirma que o arquivo temporario do frame nao vaza em `os.tmpdir()` depois da extracao.
 
 ### SI-03.9 — Worker: entrypoint, consumo da fila e atualização de status
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 14/14 passing (`video-processing.service.spec.ts` 9 unit, `video-processing.service.integration-spec.ts` 5 com MinIO + FFmpeg reais)
+- **Observations:**
+  - Subir o container revelou um bug que nenhum teste unitario pegaria: com `autoLoadEntities: true` o worker so registra `Video` (o unico `forFeature`), e como `Video` se relaciona com `Channel`, que se relaciona com `User`, o TypeORM nao consegue montar os metadados e o boot entra em loop de retry. Passou a declarar `entities: [User, Channel, Video]` explicitamente.
+  - `getChannelRef()` e tipado como `any` pelo `@nestjs/microservices`; o handler tipa localmente como `Channel` do `amqplib` para nao perder a checagem.
+  - O handler faz `ack` no `finally`, em todos os caminhos: com `noAck: false`, uma excecao nao tratada deixaria a mensagem unacked e ela voltaria em loop.
 
 ### SI-03.10 — Entrega: metadados públicos, streaming e download
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 12/12 e2e (`test/videos-delivery.e2e-spec.ts`) + 3 novos unit no guard (`jwt-auth.guard.spec.ts`)
+- **Observations:**
+  - As rotas publicas precisam de **identidade opcional**: o dono do canal enxerga o proprio video ainda em `processing`, e o anonimo recebe 404. Como `@Public()` fazia o guard nem olhar o token, o `JwtAuthGuard` herdado da Fase 02 passou a, em rota publica, anexar o payload quando o token e valido e seguir como anonimo quando nao e — sem nunca responder 401. E um conceito de plataforma (assistir anonimo com identidade opcional), nao so desta fase.
+  - O e2e prova a cadeia inteira do TD-09: a API responde `302` e uma requisicao `Range: bytes=0-1023` contra o `Location` devolve `206` com `Content-Range: bytes 0-1023/<tamanho>` — servido pelo MinIO, nao pela API.
+  - O nome do arquivo de download e sanitizado a partir do titulo: `Acao: minha gravacao!` vira `Acao-minha-gravacao.mp4`, com o `Content-Disposition` assinado dentro da URL (nao adulteravel pelo cliente).
 
 ### SI-03.11 — Coerência documental da fase
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** suite de openapi verde (`openapi-export.integration-spec.ts`); `openapi.json` reexportado com os 7 endpoints de video
+- **Observations:**
+  - `docs/diagrams/software-arch.mermaid` deixou de marcar a fila como `TBD` e passou a nomear RabbitMQ; `CLAUDE.md` da raiz ganhou a secao "Videos" com o fluxo completo, e o `nestjs-project/CLAUDE.md` ganhou os servicos novos do Compose, os comandos do worker, o mapa do modulo e a nota sobre o host que assina as URLs pre-assinadas. Fecha o `IC-1` do `validation.md`.

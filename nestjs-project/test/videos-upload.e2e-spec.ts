@@ -81,13 +81,23 @@ describe('Videos — upload (e2e)', () => {
     const password = 'password123';
 
     const authService = app.get(AuthService);
-    const mailService = (authService as unknown as { mailService: object })
-      .mailService;
+    const mailService = (
+      authService as unknown as {
+        mailService: {
+          sendConfirmationEmail: (
+            email: string,
+            nickname: string,
+            token: string,
+          ) => Promise<void>;
+        };
+      }
+    ).mailService;
+
     let confirmationToken = '';
     jest
-      .spyOn(mailService as never, 'sendConfirmationEmail')
-      .mockImplementationOnce(async (..._args: unknown[]) => {
-        confirmationToken = _args[2] as string;
+      .spyOn(mailService, 'sendConfirmationEmail')
+      .mockImplementationOnce(async (_email, _nickname, token) => {
+        confirmationToken = token;
       });
 
     await request(app.getHttpServer())

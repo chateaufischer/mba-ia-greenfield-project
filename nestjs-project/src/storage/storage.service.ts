@@ -164,10 +164,7 @@ export class StorageService implements OnModuleInit {
    * URL pré-assinada para consumo interno (worker → FFmpeg). Assinada com o
    * endpoint interno, não com o público: quem consome está dentro da rede.
    */
-  async presignInternalGetUrl(
-    key: string,
-    expiresIn: number,
-  ): Promise<string> {
+  async presignInternalGetUrl(key: string, expiresIn: number): Promise<string> {
     return this.client.presignedGetObject(this.config.bucket, key, expiresIn);
   }
 

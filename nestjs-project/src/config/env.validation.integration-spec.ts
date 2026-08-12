@@ -43,7 +43,8 @@ describe('envValidationSchema — SWAGGER_ENABLED', () => {
 
 describe('envValidationSchema — storage (phase-03-videos/TD-01)', () => {
   it('should reject a missing STORAGE_ACCESS_KEY', () => {
-    const { STORAGE_ACCESS_KEY: _omitted, ...withoutKey } = requiredEnv;
+    const withoutKey = { ...requiredEnv };
+    delete (withoutKey as Partial<typeof requiredEnv>).STORAGE_ACCESS_KEY;
     const { error } = envValidationSchema.validate(withoutKey, {
       allowUnknown: true,
       abortEarly: false,
@@ -82,7 +83,8 @@ describe('envValidationSchema — storage (phase-03-videos/TD-01)', () => {
 
 describe('envValidationSchema — queue (phase-03-videos/TD-02)', () => {
   it('should reject a missing RABBITMQ_URL', () => {
-    const { RABBITMQ_URL: _omitted, ...withoutUrl } = requiredEnv;
+    const withoutUrl = { ...requiredEnv };
+    delete (withoutUrl as Partial<typeof requiredEnv>).RABBITMQ_URL;
     const { error } = envValidationSchema.validate(withoutUrl, {
       allowUnknown: true,
       abortEarly: false,

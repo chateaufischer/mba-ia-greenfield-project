@@ -12,12 +12,14 @@ import {
   UploadTooLargeException,
   VideoNotFoundException,
   VideoNotOwnedException,
+  VideoNotReadyException,
 } from '../common/exceptions/domain.exception';
 import storageConfig from '../config/storage.config';
 import { StorageService } from '../storage/storage.service';
-import { sourceKey } from '../storage/storage.keys';
+import { sourceExtension, sourceKey } from '../storage/storage.keys';
 import { CreateVideoDto } from './dto/create-video.dto';
 import type { UploadedPartDto } from './dto/complete-upload.dto';
+import { VideoResponseDto } from './dto/video-response.dto';
 import { Video } from './entities/video.entity';
 import { generatePublicId } from './public-id.util';
 import { VideoQueuePublisher } from './queue/video-queue.publisher';
@@ -35,6 +37,25 @@ export interface CreatedVideo {
     part_size_bytes: number;
     total_parts: number;
   };
+}
+
+/**
+ * Nome de arquivo seguro para o `Content-Disposition`: só ASCII imprimível sem
+ * aspas nem barras, para que o header não possa ser quebrado pelo título.
+ */
+function buildDownloadFilename(title: string, key: string): string {
+  const safeTitle =
+    title
+      .normalize('NFD')
+      // \p{Diacritic} evita escrever a faixa de combining marks literalmente
+      // no fonte, que fica invisivel e frageis a reformatacao.
+      .replace(/\p{Diacritic}/gu, '')
+      .replace(/[^a-zA-Z0-9 ._-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 80) || 'video';
+
+  return `${safeTitle}${sourceExtension(key)}`;
 }
 
 function isPublicIdViolation(error: unknown): boolean {
@@ -66,7 +87,10 @@ export class VideosService {
    * (phase-03-videos/TD-03 + TD-08). Nenhum byte passa por aqui: o cliente
    * envia as partes direto ao storage com as URLs pré-assinadas.
    */
-  async createDraft(userId: string, dto: CreateVideoDto): Promise<CreatedVideo> {
+  async createDraft(
+    userId: string,
+    dto: CreateVideoDto,
+  ): Promise<CreatedVideo> {
     if (!dto.content_type.startsWith('video/')) {
       throw new UnsupportedMediaTypeException();
     }
@@ -77,10 +101,7 @@ export class VideosService {
     const channel = await this.channelsService.findByUserId(userId);
     if (!channel) throw new ChannelNotFoundException();
 
-    const video = await this.persistDraftWithUniquePublicId(
-      channel.id,
-      dto,
-    );
+    const video = await this.persistDraftWithUniquePublicId(channel.id, dto);
 
     return {
       id: video.id,
@@ -95,10 +116,7 @@ export class VideosService {
   }
 
   totalParts(sizeBytes: number): number {
-    return Math.max(
-      1,
-      Math.ceil(sizeBytes / this.config.uploadPartSizeBytes),
-    );
+    return Math.max(1, Math.ceil(sizeBytes / this.config.uploadPartSizeBytes));
   }
 
   /**
@@ -150,7 +168,9 @@ export class VideosService {
     userId: string,
     videoId: string,
     partNumbers: number[],
-  ): Promise<{ parts: Awaited<ReturnType<StorageService['presignPartUrls']>> }> {
+  ): Promise<{
+    parts: Awaited<ReturnType<StorageService['presignPartUrls']>>;
+  }> {
     const video = await this.findOwnedVideo(userId, videoId);
     const uploadId = this.requireOpenUpload(video);
 
@@ -233,6 +253,97 @@ export class VideosService {
 
     await this.storage.abortMultipartUpload(video.source_key, uploadId);
     await this.videoRepository.delete({ id: video.id });
+  }
+
+  // --- entrega (phase-03-videos/TD-07, TD-09, TD-10) ---
+
+  /**
+   * Resolve a URL única do vídeo. Vídeo que ainda não está `ready` é `404`
+   * para todo mundo, exceto para o dono do canal — que precisa acompanhar o
+   * próprio processamento (per `AMB-1` em `validation.md`).
+   */
+  async findByPublicId(
+    publicId: string,
+    requesterUserId?: string,
+  ): Promise<{ video: Video; isOwner: boolean }> {
+    const video = await this.videoRepository.findOne({
+      where: { public_id: publicId },
+    });
+    if (!video) throw new VideoNotFoundException();
+
+    const isOwner = requesterUserId
+      ? (await this.channelsService.findByUserId(requesterUserId))?.id ===
+        video.channel_id
+      : false;
+
+    if (video.status !== VideoStatus.READY && !isOwner) {
+      throw new VideoNotFoundException();
+    }
+
+    return { video, isOwner };
+  }
+
+  async toResponse(video: Video, isOwner: boolean): Promise<VideoResponseDto> {
+    const response: VideoResponseDto = {
+      public_id: video.public_id,
+      title: video.title,
+      status: video.status,
+      duration_seconds: video.duration_seconds,
+      metadata: video.metadata,
+      thumbnail_url: video.thumbnail_key
+        ? await this.storage.presignGetUrl(video.thumbnail_key)
+        : null,
+      stream_url: `/videos/${video.public_id}/stream`,
+      download_url: `/videos/${video.public_id}/download`,
+    };
+
+    if (isOwner) {
+      response.processing_error = video.processing_error;
+    }
+
+    return response;
+  }
+
+  /**
+   * URL pré-assinada de reprodução. A API responde `302`; o `Range`/`206` é
+   * servido pelo próprio storage — nenhum byte de vídeo passa por aqui
+   * (phase-03-videos/TD-09).
+   */
+  async getStreamUrl(
+    publicId: string,
+    requesterUserId?: string,
+  ): Promise<string> {
+    const { video } = await this.findReadyVideo(publicId, requesterUserId);
+    return this.storage.presignGetUrl(video.source_key);
+  }
+
+  /**
+   * Mesma mecânica do streaming, com `Content-Disposition` assinado dentro da
+   * URL para o browser salvar em vez de navegar (phase-03-videos/TD-10).
+   */
+  async getDownloadUrl(
+    publicId: string,
+    requesterUserId?: string,
+  ): Promise<string> {
+    const { video } = await this.findReadyVideo(publicId, requesterUserId);
+    const filename = buildDownloadFilename(video.title, video.source_key);
+
+    return this.storage.presignGetUrl(video.source_key, undefined, {
+      'response-content-disposition': `attachment; filename="${filename}"`,
+      'response-content-type': video.source_content_type,
+    });
+  }
+
+  private async findReadyVideo(
+    publicId: string,
+    requesterUserId?: string,
+  ): Promise<{ video: Video; isOwner: boolean }> {
+    const found = await this.findByPublicId(publicId, requesterUserId);
+    if (found.video.status !== VideoStatus.READY) {
+      // Só o dono chega aqui: para os demais, findByPublicId já respondeu 404.
+      throw new VideoNotReadyException();
+    }
+    return found;
   }
 
   private assertPartsAreCoherent(parts: UploadedPartDto[]): void {

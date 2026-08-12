@@ -81,7 +81,11 @@ export class UploadTooLargeException extends DomainException {
 
 export class UnsupportedMediaTypeException extends DomainException {
   constructor() {
-    super('UNSUPPORTED_MEDIA_TYPE', 415, 'Only video content types are accepted');
+    super(
+      'UNSUPPORTED_MEDIA_TYPE',
+      415,
+      'Only video content types are accepted',
+    );
   }
 }
 

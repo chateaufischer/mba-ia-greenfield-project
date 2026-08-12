@@ -45,7 +45,9 @@ describe('VideosService', () => {
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
     } as unknown as jest.Mocked<Repository<Video>>;
 
-    channels = { findByUserId: jest.fn().mockResolvedValue({ id: CHANNEL_ID }) };
+    channels = {
+      findByUserId: jest.fn().mockResolvedValue({ id: CHANNEL_ID }),
+    };
 
     storage = {
       createMultipartUpload: jest.fn().mockResolvedValue('upload-1'),
@@ -89,7 +91,10 @@ describe('VideosService', () => {
   describe('createDraft', () => {
     it('should reject a non-video content type before touching storage', async () => {
       await expect(
-        service.createDraft(USER_ID, validDto({ content_type: 'application/pdf' })),
+        service.createDraft(
+          USER_ID,
+          validDto({ content_type: 'application/pdf' }),
+        ),
       ).rejects.toMatchObject({ errorCode: 'UNSUPPORTED_MEDIA_TYPE' });
 
       expect(storage.createMultipartUpload).not.toHaveBeenCalled();
@@ -106,9 +111,9 @@ describe('VideosService', () => {
     it('should fail when the user has no channel', async () => {
       channels.findByUserId.mockResolvedValue(null);
 
-      await expect(service.createDraft(USER_ID, validDto())).rejects.toMatchObject(
-        { errorCode: 'CHANNEL_NOT_FOUND' },
-      );
+      await expect(
+        service.createDraft(USER_ID, validDto()),
+      ).rejects.toMatchObject({ errorCode: 'CHANNEL_NOT_FOUND' });
     });
 
     it('should open the multipart upload and report the upload plan', async () => {
@@ -133,7 +138,9 @@ describe('VideosService', () => {
       );
       repository.save
         .mockRejectedValueOnce(violation)
-        .mockImplementation((entity) => ({ id: 'video-1', ...entity }) as never);
+        .mockImplementation(
+          (entity) => ({ id: 'video-1', ...entity }) as never,
+        );
 
       const result = await service.createDraft(USER_ID, validDto());
 
