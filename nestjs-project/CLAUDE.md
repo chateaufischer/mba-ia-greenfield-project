@@ -13,8 +13,12 @@ docker compose ps   # all services must show status "running"
 Then verify each infrastructure service is actually ready to accept connections — not just running:
 
 - **PostgreSQL:** `docker compose exec db pg_isready -U streamtube` — expect `accepting connections`
+- **MinIO:** healthcheck `mc ready local`; console at `http://localhost:9001` (user/password `streamtube`)
+- **RabbitMQ:** healthcheck `rabbitmq-diagnostics -q ping`; management UI at `http://localhost:15672` (user/password `streamtube`)
 
 Only start the NestJS dev server (`npm run start:dev`) when the user **explicitly** asks to run the application — never as part of "start the environment".
+
+**Exception — `video-worker`.** The worker is not the application server: it is an infrastructure consumer that must be draining the queue for uploads to ever finish processing. It starts with `docker compose up -d` like the other services (`command: npm run start:worker:dev`) and stays up.
 
 ## Development Environment
 
@@ -33,7 +37,11 @@ docker compose exec nestjs-api npm run start:dev
 
 Services:
 - `nestjs-api` — NestJS API, port `3000`
+- `video-worker` — consumidor da fila de processamento de vídeo; mesma imagem e mesmo código da API, sem porta publicada
 - `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
+- `minio` — object storage compatível com S3, API `9000`, console `9001`, user/password `streamtube`
+- `rabbitmq` — broker da fila, AMQP `5672`, management `15672`, user/password `streamtube`
+- `mailpit` — captura de SMTP, `1025` / UI `8025`
 
 All verification and teardown commands run on the **host machine**:
 
@@ -62,6 +70,9 @@ docker compose down
 npm run start:dev                        # Dev server with hot-reload
 npm run build                            # Compile to dist/
 npm run start:prod                       # Run compiled build
+
+npm run start:worker:dev                 # Video worker (watch) — já é o command do serviço video-worker
+npm run start:worker                     # Video worker a partir do build em dist/
 
 npm test                                 # Unit tests
 npm run test:watch                       # Unit tests in watch mode
@@ -148,6 +159,31 @@ NestJS with standard module structure. Source lives in `src/`, compiled output i
 
 - Each domain feature gets its own module (e.g., `UsersModule`, `VideosModule`) registered in `AppModule`
 - Controllers handle HTTP routing; Services hold business logic; both are scoped to their module
+
+### Two entrypoints, one codebase
+
+`src/main.ts` boots the HTTP API (`AppModule`). `src/worker/main.worker.ts` boots the video worker (`WorkerModule`) as a pure RMQ microservice — no HTTP listener, no guards, no Swagger. Both share entities, config namespaces, `StorageService` and the queue contract; the worker container differs only by `command`.
+
+`WorkerModule` declares its entities **explicitly** (`[User, Channel, Video]`) instead of using `autoLoadEntities`: it only calls `forFeature([Video])`, and `Video` relates to `Channel`, which relates to `User` — without the full set, TypeORM cannot build the relation metadata and the worker fails to boot.
+
+### Videos module (`src/videos/`)
+
+| Path | Role |
+|------|------|
+| `entities/video.entity.ts` | Tabela `videos`, ligada ao canal; enum de status, chaves de storage, metadados |
+| `videos.service.ts` | Handshake de upload, transições de status, URLs de entrega |
+| `videos.controller.ts` | 7 endpoints: 4 de upload (autenticados, ownership) + 3 de entrega (`@Public()`) |
+| `public-id.util.ts` | `public_id` de 11 chars base64url |
+| `queue/` | Constantes compartilhadas do contrato de fila, publisher e topologia retry/DLQ |
+| `processing/ffmpeg.service.ts` | Adapter tipado sobre `ffprobe`/`ffmpeg` (spawn direto, sem wrapper) |
+| `../storage/` | `StorageService` — único ponto de contato com o object storage |
+| `../worker/` | Entrypoint, módulo, controller de evento e serviço de processamento do worker |
+
+O fluxo completo (upload → processamento → entrega) está descrito no `CLAUDE.md` da raiz, seção "Videos".
+
+### Presigned URLs e o host que as assina
+
+A assinatura SigV4 cobre o host, então uma URL assinada para `minio:9000` **não** vale em `localhost:9000`. `STORAGE_ENDPOINT` (interno) e `STORAGE_PUBLIC_ENDPOINT` (o que vai nas URLs entregues ao cliente) são knobs separados; em dev os dois apontam para `minio:9000`, o que faz as URLs valerem de dentro da rede do Compose — inclusive nos testes. Para abrir uma URL assinada no browser do host, mapeie `127.0.0.1 minio` no `hosts` da máquina. Em produção, `STORAGE_PUBLIC_ENDPOINT` aponta para o host público do S3/CDN.
 
 ## Code Conventions
 

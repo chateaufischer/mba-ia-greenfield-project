@@ -52,6 +52,38 @@ describe('JwtAuthGuard', () => {
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 
+  describe('optional identity on @Public() routes', () => {
+    beforeEach(() => {
+      mockReflector.getAllAndOverride.mockReturnValue(true);
+    });
+
+    it('attaches the payload when a valid token is present', async () => {
+      const token = jwtService.sign({ sub: 'user-9', email: 'o@example.com' });
+      const request: Record<string, unknown> = {
+        headers: { authorization: `Bearer ${token}` },
+      };
+
+      await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
+      expect((request.user as Record<string, unknown>)?.sub).toBe('user-9');
+    });
+
+    it('stays anonymous when the token is invalid instead of rejecting', async () => {
+      const request: Record<string, unknown> = {
+        headers: { authorization: 'Bearer garbage' },
+      };
+
+      await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
+      expect(request.user).toBeUndefined();
+    });
+
+    it('stays anonymous when there is no Authorization header', async () => {
+      const request: Record<string, unknown> = { headers: {} };
+
+      await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
+      expect(request.user).toBeUndefined();
+    });
+  });
+
   it('passes with a valid JWT and attaches payload to request.user', async () => {
     const token = jwtService.sign({ sub: 'user-1', email: 'a@example.com' });
     const request: Record<string, unknown> = {

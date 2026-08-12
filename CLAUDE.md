@@ -10,7 +10,7 @@ More info in the project overview: [docs/project-plan.md](docs/project-plan.md)
 
 This is a monorepo with two main areas:
 
-- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express). Contains modules for users, channels, videos, comments, etc.
+- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express) **and** the video worker, which is a second entrypoint over the same codebase (`src/worker/`). Contains modules for users, channels, videos, comments, etc.
 - `docs/` — Project documentation, architecture diagrams, and planning.
 - `next-frontend/` (Next.js) — not yet initialized
 
@@ -19,12 +19,32 @@ This is a monorepo with two main areas:
 See `docs/diagrams/software-arch.mermaid` for the full diagram. Key containers:
 
 - **Frontend** (Next.js) → calls API via REST, streams from Object Storage
-- **API** (Nest.js) → business rules, auth, reads/writes DB, uploads to storage, publishes jobs to queue, sends emails
+- **API** (Nest.js) → business rules, auth, reads/writes DB, brokers presigned uploads to storage, publishes jobs to queue, sends emails
 - **Video Worker** (FFmpeg) → consumes jobs from queue, processes videos, updates DB and storage
 - **Database** (PostgreSQL) → users, channels, videos, comments, likes
-- **Object Storage** (S3/MinIO) → video files and thumbnails
-- **Message Queue** (TBD) → video processing job queue
+- **Object Storage** (MinIO in dev, S3-compatible in prod) → video files and thumbnails
+- **Message Queue** (RabbitMQ) → video processing job queue (decided in Fase 03 — `phase-03-videos/TD-02`)
 - **Email Service** (SMTP) → account confirmation and password recovery
+
+## Videos — Upload, Processing and Delivery
+
+Delivered in Fase 03 (`docs/phases/phase-03-videos/`). The invariant that shapes the whole design: **no video byte ever crosses the API process** — not on the way in, not on the way out.
+
+**Upload (3-call handshake, `phase-03-videos/TD-03`).** The API brokers an S3 multipart upload but never receives the file:
+
+1. `POST /videos` — pre-registers the video as `draft` and opens the multipart upload; returns `upload_id`, `part_size_bytes` (8MiB) and `total_parts`.
+2. `POST /videos/:id/upload/parts` — returns presigned `PUT` URLs for a batch of part numbers. The client uploads each part **directly to the object storage** and keeps the returned `ETag`.
+3. `POST /videos/:id/upload/complete` — consolidates the parts, flips `draft → processing` and publishes the processing job. `DELETE /videos/:id/upload` aborts instead.
+
+Limit: 10GiB (`UPLOAD_MAX_BYTES`), i.e. 1,280 parts of 8MiB — inside S3's 10,000-part ceiling.
+
+**Processing (`video-worker` container).** The worker is the same codebase with a queue-only entrypoint (`src/worker/main.worker.ts`, `npm run start:worker:dev`), no HTTP listener. It consumes `video.processing` with manual ack, points `ffprobe`/`ffmpeg` at a **presigned URL** (so it reads byte ranges instead of downloading 10GB), extracts duration + metadata, cuts a thumbnail at 10% of the duration, and flips the video to `ready`.
+
+**Status lifecycle:** `draft → processing → ready | failed`. On failure the job is re-published to `video.processing.retry`, which dead-letters back to the main queue after `x-message-ttl` — the backoff is the broker's, so it survives a worker restart. After `VIDEO_JOB_MAX_ATTEMPTS` the video becomes `failed` with the FFmpeg stderr in `processing_error` and the message is parked in `video.processing.dlq`.
+
+**Delivery (`phase-03-videos/TD-09` / `TD-10`).** `GET /videos/:public_id/stream` and `/download` answer **`302`** with a short-lived presigned URL; the storage serves `Range`/`206 Partial Content` (streaming starts without a full download) and, for download, an `attachment` `Content-Disposition` signed into the URL. `GET /videos/:public_id` returns public metadata — `ready` videos are visible to anyone, and the channel owner additionally sees videos still `processing` plus `processing_error`.
+
+**Unique URL:** every video carries an 11-char base64url `public_id` (`node:crypto`, unique index, regenerate-on-collision) — short, opaque and non-enumerable.
 
 ## Docker Networking
 

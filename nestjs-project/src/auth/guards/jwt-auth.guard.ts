@@ -22,12 +22,19 @@ export class JwtAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
-
     const request = context
       .switchToHttp()
       .getRequest<{ headers: Record<string, string>; user: unknown }>();
     const authHeader = request.headers?.authorization;
+
+    if (isPublic) {
+      // Rota pública com identidade opcional: se vier um token válido, o
+      // usuário é reconhecido (é assim que o dono de um canal enxerga o
+      // próprio vídeo ainda em processamento); token ausente ou inválido
+      // simplesmente segue como anônimo, sem 401.
+      await this.attachUserIfTokenIsValid(request, authHeader);
+      return true;
+    }
 
     if (!authHeader || !authHeader.startsWith(BEARER_PREFIX)) {
       throw new UnauthorizedException();
@@ -41,6 +48,21 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     } catch {
       throw new UnauthorizedException();
+    }
+  }
+
+  private async attachUserIfTokenIsValid(
+    request: { user: unknown },
+    authHeader: string | undefined,
+  ): Promise<void> {
+    if (!authHeader?.startsWith(BEARER_PREFIX)) return;
+
+    try {
+      request.user = await this.jwtService.verifyAsync<JwtPayload>(
+        authHeader.slice(BEARER_PREFIX.length),
+      );
+    } catch {
+      // Token inválido numa rota pública não é erro: segue anônimo.
     }
   }
 }
