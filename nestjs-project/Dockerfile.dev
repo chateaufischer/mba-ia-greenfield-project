@@ -1,9 +1,12 @@
 FROM node:25.6.0-slim
 
-RUN apt update && apt install -y procps curl
+# ffmpeg/ffprobe: usados pelo worker de vídeo em runtime (phase-03-videos/TD-05)
+# e pelos testes de integração do adapter FFmpeg, que rodam no container da API
+# pelo comando canônico de teste (phase-03-videos/TD-11).
+RUN apt update && apt install -y procps curl ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/node/app
 
 USER node
 
-CMD [ "tail", "-f", "/dev/null" ] 
+CMD [ "tail", "-f", "/dev/null" ]

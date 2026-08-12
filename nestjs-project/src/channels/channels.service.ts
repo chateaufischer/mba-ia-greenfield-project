@@ -21,6 +21,18 @@ function isPgUniqueViolationOnColumn(err: unknown, column: string): boolean {
 export class ChannelsService {
   constructor(private readonly dataSource: DataSource) {}
 
+  /**
+   * Resolve o canal do usuário autenticado. O `JwtPayload` carrega apenas
+   * `sub`/`email`, então todo domínio que pertence a um canal (vídeos, a partir
+   * da Fase 03) precisa deste lookup — que vive aqui, no módulo dono do
+   * domínio de canal, e não no consumidor.
+   */
+  async findByUserId(userId: string): Promise<Channel | null> {
+    return this.dataSource
+      .getRepository(Channel)
+      .findOne({ where: { user_id: userId } });
+  }
+
   async createChannel(userId: string, email: string): Promise<Channel> {
     const baseNickname = sanitizeNickname(email.split('@')[0]);
 
