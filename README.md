@@ -25,7 +25,7 @@ Este é um projeto greenfield desenvolvido para demonstrar como construir uma ap
 ## 🎨 Design System (Figma)
 
 - [FC Tube.fig](./FC%20Tube.fig) — arquivo-fonte do **design system** do projeto no Figma.
-- [FC Tube sem padrão.fig](./FC%20Tube%20sem%20padrao.fig) — arquivo-fonte puro, sem tokens, cores, tipografia e espaçamento.
+- [FC Tube sem padrão.fig](./FC%20Tube%20sem%20padr%C3%A3o.fig) — arquivo-fonte puro, sem tokens, cores, tipografia e espaçamento.
 
 Contém os fundamentos visuais do StreamTube — tokens (cores, tipografia, espaçamento, raios), componentes e as telas da plataforma. É a referência de design para a implementação do frontend: os componentes em `next-frontend/components/ui` (shadcn) e os tokens em `next-frontend/app/globals.css` derivam deste arquivo. Abra-o no Figma (`Arquivo → Importar`) para consultar especificações e estados visuais.
 
@@ -135,6 +135,12 @@ npx playwright test                                   # end-to-end (no host, com
 
 Sufixos: `*.test.ts(x)` (unitário), `*.integration.test.ts(x)` (Route Handlers com MSW), `*.e2e-spec.ts` (Playwright). MSW intercepta as chamadas à API NestJS — os testes nunca batem no backend real.
 
+### Testes manuais
+
+| Fase | Roteiro |
+|------|---------|
+| **03** — Upload e Processamento de Vídeos | [docs/manual-tests/phase-03-videos.md](./docs/manual-tests/phase-03-videos.md) |
+
 ## ✅ Funcionalidades implementadas
 
 **Fase 01 — Configuração base**, **Fase 02 — Autenticação** (backend + frontend) e **Fase 03 — Upload e Processamento de Vídeos** (backend) estão concluídas.
@@ -192,6 +198,8 @@ Endpoints da API:
 
 **URL única:** cada vídeo carrega um `public_id` de 11 caracteres base64url (`node:crypto`, índice único, regeneração em colisão) — curto, opaco e não enumerável.
 
+📄 **[Roteiro de teste manual + execução registrada](./docs/manual-tests/phase-03-videos.md)** — passo a passo para exercitar o ciclo completo pela API, com o resultado de uma execução real (upload de 35,9 MB, processamento, `206 Partial Content` e download).
+
 ## 🛠️ Estrutura do Projeto
 
 ```
@@ -199,6 +207,7 @@ green-field-ia-project/
 ├── docs/
 │   ├── project-plan.md                  # Planejamento geral do projeto
 │   ├── decisions/                       # Decisões técnicas por escopo (research)
+│   ├── manual-tests/                    # Roteiros de teste manual + execuções registradas
 │   ├── phases/                          # Planos e implementação por fase
 │   │   ├── phase-01-configuracao-base/
 │   │   ├── phase-02-auth/               # Auth (backend)
