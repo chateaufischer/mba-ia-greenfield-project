@@ -7,19 +7,37 @@ const PG_UNIQUE_VIOLATION = '23505';
 const NICKNAME_COLUMN = 'nickname';
 const MAX_RETRIES = 5;
 
+/** Campos do erro do driver `pg` que o TypeORM não tipa em `QueryFailedError`. */
+interface PgDriverError {
+  code?: string;
+  detail?: string;
+}
+
 function isPgUniqueViolationOnColumn(err: unknown, column: string): boolean {
   if (!(err instanceof QueryFailedError)) return false;
-  const e = err as any;
+  const driverError = err as unknown as PgDriverError;
   return (
-    e.code === PG_UNIQUE_VIOLATION &&
-    typeof e.detail === 'string' &&
-    e.detail.includes(column)
+    driverError.code === PG_UNIQUE_VIOLATION &&
+    typeof driverError.detail === 'string' &&
+    driverError.detail.includes(column)
   );
 }
 
 @Injectable()
 export class ChannelsService {
   constructor(private readonly dataSource: DataSource) {}
+
+  /**
+   * Resolve o canal do usuário autenticado. O `JwtPayload` carrega apenas
+   * `sub`/`email`, então todo domínio que pertence a um canal (vídeos, a partir
+   * da Fase 03) precisa deste lookup — que vive aqui, no módulo dono do
+   * domínio de canal, e não no consumidor.
+   */
+  async findByUserId(userId: string): Promise<Channel | null> {
+    return this.dataSource
+      .getRepository(Channel)
+      .findOne({ where: { user_id: userId } });
+  }
 
   async createChannel(userId: string, email: string): Promise<Channel> {
     const baseNickname = sanitizeNickname(email.split('@')[0]);
